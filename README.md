@@ -17,14 +17,14 @@ Choose OS → Raspberry Pi OS (other) → Raspberry Pi OS Lite (64-bit)
 Click Edit Settings before writing:
 Hostname: `albumplayer`
 Enable SSH → password authentication
-Username: `jamesmcgraaw` (or your own)
+Username: your own
 Password: avoid special characters
 WiFi: enter SSID and password, country `GB`
 Timezone: `Europe/London`
 Write to SD card
 First Boot & Update
 ```bash
-ssh jamesmcgraaw@albumplayer.local
+ssh yourusername@albumplayer.local
 sudo apt update && sudo apt full-upgrade -y
 sudo reboot
 ```
@@ -208,6 +208,7 @@ REFRESH_TOKEN = "YOUR_REFRESH_TOKEN_HERE"
 
 # ── Must match LIBRESPOT_NAME in /etc/raspotify/conf ─────────────────────
 SPOTIFY_DEVICE_NAME = "Album Player"
+PAUSE_TAG = "your_pause_tag_uid_here"
 
 # ── Tag UID → Spotify URI mapping ────────────────────────────────────────
 # Get UIDs by running example_get_uid.py and tapping each tag
@@ -279,6 +280,31 @@ def play_uri(spotify_uri):
     else:
         print(f"❌ Playback error {resp.status_code}: {resp.text}")
 
+def get_playback_state():
+    resp = requests.get("https://api.spotify.com/v1/me/player",
+                        headers=spotify_headers())
+    if resp.status_code == 204 or not resp.content:
+        return None
+    return resp.json()
+
+def toggle_pause():
+    state = get_playback_state()
+    if state is None:
+        print("⚠️  Nothing currently playing")
+        return
+    device_id = get_device_id()
+    if not device_id:
+        print(f"⚠️  Device '{cfg.SPOTIFY_DEVICE_NAME}' not found")
+        return
+    if state.get("is_playing"):
+        requests.put("https://api.spotify.com/v1/me/player/pause",
+                     headers=spotify_headers())
+        print("⏸  Paused")
+    else:
+        requests.put("https://api.spotify.com/v1/me/player/play",
+                     headers=spotify_headers())
+        print("▶  Resumed")
+
 # ── NFC setup ─────────────────────────────────────────────────────────────
 pn532 = PN532_SPI(debug=False, reset=20, cs=4)
 ic, ver, rev, support = pn532.get_firmware_version()
@@ -309,12 +335,14 @@ while True:
         last_uid  = uid_str
         last_time = now
 
-        print(f"Tag scanned: {uid_str}")
-
-        if uid_str in cfg.TAG_MAP:
-            play_uri(cfg.TAG_MAP[uid_str])
-        else:
-            print(f"   (No album mapped to this tag — add it to nfc_player_config.py)")
+       print(f"Tag scanned: {uid_str}")
+       
+       if uid_str == cfg.PAUSE_TAG:
+           toggle_pause()
+       elif uid_str in cfg.TAG_MAP:
+           play_uri(cfg.TAG_MAP[uid_str])
+       else:
+           print(f"   (No album mapped to this tag — add it to nfc_player_config.py)")
 
     except KeyboardInterrupt:
         print("\nStopping.")
